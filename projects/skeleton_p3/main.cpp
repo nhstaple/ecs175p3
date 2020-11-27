@@ -42,6 +42,8 @@ vec3 normalize_vector(const vec3 v) {
   }
 }
 
+#define LIGHT_LOCATION_SCALE 1000
+
 // globals
 // control states
 struct PhongState {
@@ -49,18 +51,21 @@ struct PhongState {
   bool enable_ambient = true;
   bool enable_diffuse = true;
   bool enable_specular = true;
-  float ambient_coefficient = 0.5;
-  float diffuse_coefficient = 0.5;
-  float specular_coefficient = 0.5;
   int specular_factor = 2;
   vec3 ambient_rgb = vec3(0.5, 0.5, 0.5);
+  vec3 diffuse_rgb = vec3(1, 1, 1);
+  float ambient_intensity = 1;
 
   float amb_color_float[3];
+  float dif_color_float[3];
 
   PhongState() {
     amb_color_float[0] = ambient_rgb.x;
     amb_color_float[1] = ambient_rgb.y;
     amb_color_float[2] = ambient_rgb.z;
+    dif_color_float[0] = diffuse_rgb.x;
+    dif_color_float[1] = diffuse_rgb.y;
+    dif_color_float[2] = diffuse_rgb.z;
   }
 
   float* GetAmbientColor() {
@@ -69,10 +74,21 @@ struct PhongState {
     amb_color_float[2] = ambient_rgb.z;
     return amb_color_float;
   }
+
+  float* GetDiffuseColor() {
+    dif_color_float[0] = diffuse_rgb.x;
+    dif_color_float[1] = diffuse_rgb.y;
+    dif_color_float[2] = diffuse_rgb.z;
+    return dif_color_float;
+  }
+
   void UpdateColor() {
     ambient_rgb.x = amb_color_float[0];
     ambient_rgb.y = amb_color_float[1];
     ambient_rgb.z = amb_color_float[2];
+    diffuse_rgb.x = dif_color_float[0];
+    diffuse_rgb.y = dif_color_float[1];
+    diffuse_rgb.z = dif_color_float[2];
   }
 } phong;
 
@@ -87,32 +103,23 @@ struct GUIState {
 struct PointLightSource {
   vec3 position = vec3(0, 0, 0);
   vec3 color_rgb = vec3(1, 0.25, 0.25);
-  int color_intensity = 1;
+  float intensity = 1;
 
   float color_float[3];
+
   float* GetColorArray() {
     color_float[0] = color_rgb.x;
     color_float[1] = color_rgb.y;
     color_float[2] = color_rgb.z;
     return color_float;
   }
+
   void UpdateRGB() {
     color_rgb.x = color_float[0];
     color_rgb.y = color_float[1];
     color_rgb.z = color_float[2];
   }
-  float GetUniR() const {
-    // return normalize_vector(color_rgb * intensity).x;
-    return color_rgb.x; // * 16 * color_intensity;
-  }
-  float GetUniG() const {
-    // return normalize_vector(color_rgb * intensity).y;
-    return color_rgb.y; //  * 16 * color_intensity;
-  }
-  float GetUniB() const {
-    // return normalize_vector(color_rgb * intensity).z;
-    return color_rgb.z; // * 16 * color_intensity;
-  }
+
 } light;
 
 void
@@ -235,6 +242,19 @@ DrawGUI(bool* p_open=&gui.enable)
     }
    */
 
+    // Light
+    ImGui::Text("Light Position");
+    ImGui::SliderFloat("x##light", &light.position.x, -1, 1);
+    ImGui::SliderFloat("y##light", &light.position.y, -1, 1);
+    ImGui::SliderFloat("z##light", &light.position.z, -1, 1);
+    // color slider
+    ImGui::SliderFloat("I_l", &light.intensity, 0, 1);
+    ImGui::ColorEdit3("Light Source Color", light.GetColorArray()); light.UpdateRGB();
+
+    // Camera
+    ImGui::Text("Camera Position: TODO");
+    // TODO
+
     if(ImGui::Checkbox("Enable Phong", &phong.enable)) {
     }
 
@@ -244,36 +264,21 @@ DrawGUI(bool* p_open=&gui.enable)
       }
       if(phong.enable_ambient) {
         // ambient coefficient
-        ImGui::SliderFloat("k_a", &phong.ambient_coefficient, 0, 1.0);
+        ImGui::SliderFloat("I_a", &phong.ambient_intensity, 0, 1);
         ImGui::ColorEdit3("Ambient Color", phong.GetAmbientColor()); phong.UpdateColor();
       }
       if(ImGui::Checkbox("Enable Diffuse", &phong.enable_diffuse)) {
       }
       if(phong.enable_diffuse) {
         // diffuse coefficient
-        ImGui::SliderFloat("k_d", &phong.diffuse_coefficient, 0, 1.0);
+        ImGui::ColorEdit3("Material Color", phong.GetDiffuseColor()); phong.UpdateColor();
       }
       if(ImGui::Checkbox("Enable Specular", &phong.enable_specular)) {
       }
       if(phong.enable_specular) {
-        // specular coefficient
-        ImGui::SliderFloat("k_s", &phong.specular_coefficient, 0, 1.0);
         // specular factor
-        ImGui::SliderInt("Specular Factor", &phong.specular_factor, 0, 12);
+        ImGui::SliderInt("Specular Factor", &phong.specular_factor, 0, 16);
       }
-      // Camera
-      // camera position
-      ImGui::Text("Camera Position: TODO");
-      // TODO
-
-      // light position
-      ImGui::Text("Light Position");
-      ImGui::SliderFloat("x##light", &light.position.x, -100, 100);
-      ImGui::SliderFloat("y##light", &light.position.y, -100, 100);
-      ImGui::SliderFloat("z##light", &light.position.z, -100, 100);
-      // color slider
-      ImGui::ColorEdit3("Light Source Color", light.GetColorArray()); light.UpdateRGB();
-      ImGui::SliderInt("light intensity", &light.color_intensity, 1, 500);
     }
 
     ImGui::End();
@@ -312,19 +317,19 @@ main(void)
   // ambient
   GLuint Phong_Ambient_Enable_id = glGetUniformLocation(program_id, "enableAmbient");
   GLuint Ambient_Intensity_id = glGetUniformLocation(program_id, "I_a");
-  GLuint Ambient_Coefficient_id = glGetUniformLocation(program_id, "k_a");
+  GLuint Ambient_Color_id = glGetUniformLocation(program_id, "k_a");
   // diffuse
   GLuint Phong_Diffuse_Enable_id = glGetUniformLocation(program_id, "enableDiffuse");
-  GLuint Diffuse_Coefficient_id = glGetUniformLocation(program_id, "k_d");
+  GLuint Diffuse_Color_id = glGetUniformLocation(program_id, "k_d");
   // specular
   GLuint Phong_Specular_Enable_id = glGetUniformLocation(program_id, "enableSpecular");
-  GLuint Specular_Coefficient_id = glGetUniformLocation(program_id, "k_s");
+  GLuint Specular_Color_id = glGetUniformLocation(program_id, "k_s");
   GLuint Specular_Level_id = glGetUniformLocation(program_id, "specularLevel");
   // camera
   GLuint Camera_Location_id = glGetUniformLocation(program_id, "cameraLocation");
   // light
   GLuint Light_Location_id = glGetUniformLocation(program_id, "lightLocation");
-  GLuint Light_Color_id = glGetUniformLocation(program_id, "lightColor");
+  GLuint Light_Intensity_id = glGetUniformLocation(program_id, "I_l");
 
   // Load the texture
   GLuint tex = loadTexture_from_file("uvmap.jpg");
@@ -365,16 +370,17 @@ main(void)
     glUniform1ui(Phong_Diffuse_Enable_id, phong.enable_diffuse);
     glUniform1ui(Phong_Specular_Enable_id, phong.enable_specular);
     // phong parameters: k
-    glUniform1f(Ambient_Coefficient_id, phong.ambient_coefficient);
-    glUniform1f(Diffuse_Coefficient_id, phong.diffuse_coefficient);
-    glUniform1f(Specular_Coefficient_id, phong.specular_coefficient);
+    glUniform3f(Ambient_Color_id, phong.ambient_rgb.x, phong.ambient_rgb.y, phong.ambient_rgb.z);
+    glUniform3f(Diffuse_Color_id, phong.diffuse_rgb.x, phong.diffuse_rgb.y, phong.diffuse_rgb.z);
+    glUniform3f(Specular_Color_id, light.color_rgb.x, light.color_rgb.y, light.color_rgb.z);
     // phong camera
     glUniform3f(Camera_Location_id, camera.eye().x, camera.eye().y, camera.eye().z);
     // phong light
-    glUniform3f(Light_Location_id, light.position.x, light.position.y, light.position.z);
-    glUniform3f(Light_Color_id, light.GetUniR(), light.GetUniR(), light.GetUniB());
+    glUniform3f(Light_Location_id, LIGHT_LOCATION_SCALE * light.position.x, LIGHT_LOCATION_SCALE * light.position.y,
+                LIGHT_LOCATION_SCALE * light.position.z);
+    glUniform1f(Light_Intensity_id, light.intensity);
     // ambient
-    glUniform3f(Ambient_Intensity_id, phong.ambient_rgb.x, phong.ambient_rgb.y, phong.ambient_rgb.z);
+    glUniform1f(Ambient_Intensity_id, phong.ambient_intensity);
     // specular
     glUniform1ui(Specular_Level_id, phong.specular_factor);
 

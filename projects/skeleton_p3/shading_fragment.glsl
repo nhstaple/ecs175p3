@@ -9,24 +9,24 @@ out vec3 color;
 // add more uniforms for phong calculation
 uniform vec3 cameraLocation; // f: eye location
 uniform vec3 lightLocation; // x: location of light source
-uniform vec3 I_a; // ambient intensity
-uniform float k_a; // ambient coefficient
-uniform float k_d; // diffuse coefficient
-uniform vec3 lightColor; // the intensity of the light
-uniform float k_s; // specular coefficient
-uniform int specularLevel;
+uniform float I_a; // ambient intensity
+uniform float I_l; // light intensity
+uniform vec3 k_a; // ambient color
+uniform vec3 k_d; // diffuse color
+uniform vec3 k_s; // specular color
+uniform uint specularLevel;
 
 uniform bool enablePhong;
 uniform bool enableAmbient;
 uniform bool enableDiffuse;
 uniform bool enableSpecular;
 
-vec3 computeFactor(vec3 I, vec3 v, float K);
 bool isZeroVector(vec3 v);
+float computeFactor(vec3 I, vec3 v, float K);
 
-vec3 Compute_I_ambient(float k, vec3 I);
-vec3 Compute_I_diffuse(vec3 I, vec3 v, float K, float k, float c_a);
-vec3 Compute_I_specular(vec3 I, vec3 v, float K, float k, float c_b, int n);
+vec3 Compute_I_ambient(vec3 k, float I);
+vec3 Compute_I_diffuse(vec3 k, float I, float c_a, vec3 v, float K);
+vec3 Compute_I_specular(vec3 k, float I, float c_b, uint n, vec3 v, float K);
 
 void main() {
 	if (enablePhong) {
@@ -39,104 +39,53 @@ void main() {
 		vec3 v = normalize(f - p);
 		vec3 r = -l + 2*(dot(n, l))*n;
 		float c_a = dot(n, l);
-		float c_b = dot(r, v);
+		float c_b = dot(normalize(r), v);
 		float K = length(x - p);
+		if(true) { K = 0; }
 
-		vec3 ambient_color = I_a;
-		vec3 light_color = lightColor;
+		vec3 ambient_color = k_a;
+		vec3 material_color = k_d;
+		vec3 light_color = k_s;
 
-		/*
-		// calculate I_p
-		// I_ambient
 		vec3 I_ambient = vec3(0, 0, 0);
-		if(enableAmbient) {
-			I_ambient = ambient_color * k_a;
-		}
+		if(enableAmbient) I_ambient = Compute_I_ambient(ambient_color, I_a);
 
 		vec3 I_diffuse = vec3(0, 0, 0);
-		// I_diffuse
-		if(enableDiffuse && c_a != 0) {
-			I_diffuse = (k_d * c_a) * (computeFactor(light_color, v, length(x - p)));
-			// I_diffuse = (k_d * c_a) * (computeFactor(light_color, v, 0));
-		}
+		if(enableDiffuse) I_diffuse = Compute_I_diffuse(material_color, I_l, c_a, v, K);
 
 		vec3 I_specular = vec3(0, 0, 0);
-		// I_specular
-		if(enableSpecular && c_b != 0 && specularLevel > 0) {
-			I_specular = k_s * pow(c_b, specularLevel) * (computeFactor(light_color, v, length(x - p)));
-			// I_specular = k_s * pow(c_b, specularLevel) * (computeFactor(light_color, v, 0));
-		}
+		if(enableSpecular) I_specular = Compute_I_specular(light_color, I_l, c_b, specularLevel, v, K);
 
-		vec3 I_p;
-		bool inc_ambient = enableAmbient && (I_ambient.x != 0 || I_ambient.y != 0 || I_ambient.z != 0);
-		bool inc_diffuse = enableDiffuse && (I_diffuse.x != 0 || I_diffuse.y != 0 || I_diffuse.z != 0);
-		bool inc_specular = enableSpecular && (I_specular.x != 0 || I_specular.y != 0 || I_specular.z != 0);
-		if(false) {
-			vec3 x1 = inc_ambient ? normalize(I_ambient) : vec3(0, 0, 0);
-			vec3 x2 = inc_diffuse ? normalize(I_diffuse) : vec3(0, 0, 0);
-			vec3 x3 = inc_specular ? normalize(I_specular) : vec3(0, 0, 0);
+		vec3 I_p = (I_ambient + I_diffuse + I_specular);
 
-		if(inc_ambient && inc_diffuse && inc_specular) {
-			I_p = normalize(I_ambient + I_diffuse + I_specular);
-		} else if(inc_ambient && inc_diffuse && !inc_specular) {
-			I_p = normalize(I_ambient + I_diffuse);
-		} else if(inc_ambient && !inc_diffuse && inc_specular) {
-			I_p = normalize(I_ambient + I_specular);
-		} else if(inc_ambient && !inc_diffuse && !inc_specular)  {
-			I_p = normalize(I_ambient);
-		} else if(!inc_ambient && inc_diffuse && inc_specular) {
-			I_p = normalize(I_diffuse + I_specular);
-		} else if(!inc_ambient && !inc_diffuse && inc_specular) {
-			I_p = normalize(I_specular);
-		} else if(!inc_ambient && inc_diffuse && !inc_specular) {
-			I_p = normalize(I_diffuse);
-		} else {
-			// I_p = Normal_modelspace * 0.5 + 0.5;
-		}
-
-			I_p = normalize(x1 + x2 + x3);
-		} else {
-			vec3 x1 = inc_ambient ? (I_ambient) : vec3(0, 0, 0);
-			vec3 x2 = inc_diffuse ? (I_diffuse) : vec3(0, 0, 0);
-			vec3 x3 = inc_specular ? (I_specular) : vec3(0, 0, 0);
-			I_p = normalize(x1 + x2 + x3);
-		}
 		color = I_p;
 	} else {
 		color = Normal_modelspace * 0.5 + 0.5;
 	}
-	*/
-
-		vec3 I_ambient = enableAmbient ? Compute_I_ambient(k_a, ambient_color) : vec3(0, 0, 0);
-		vec3 I_diffuse = c_a != 0 ? Compute_I_diffuse(light_color, v, K, k_d, c_a) : vec3(0, 0, 0);
-		vec3 I_specular = c_b != 0 ? Compute_I_specular(light_color, v, K, k_s, c_b, specularLevel) : vec3(0, 0, 0);
-
-		vec3 I_p = I_ambient;
-		I_p = enableDiffuse ? I_p + I_diffuse : I_p;
-		I_p = enableSpecular ? I_p + I_specular : I_p;
-		color = I_p;
-	} else {
-		color = Normal_modelspace * 0.5 + 0.5;
-	}
-}
-vec3 computeFactor(vec3 I, vec3 v, float K) {
-	return I / (length(v) + K);
 }
 
 bool isZeroVector(vec3 v) {
 	return v.x == 0 && v.y == 0 && v.z == 0;
 }
 
-vec3 Compute_I_ambient(float k, vec3 I) {
+float computeFactor(float I, vec3 v, float K) {
+	return I / (length(v) + K);
+}
+
+vec3 Compute_I_ambient(vec3 k, float I) {
 	return k * I;
 }
 
-vec3 Compute_I_diffuse(vec3 I, vec3 v, float K, float k, float c_a) {
+vec3 Compute_I_diffuse(vec3 k, float I, float c_a, vec3 v, float K) {
 	return computeFactor(I, v, K) * k * c_a;
 }
 
-vec3 Compute_I_specular(vec3 I, vec3 v, float K, float k, float c_b, int n) {
-	return computeFactor(I, v, K) * k * pow(c_b, n);
+vec3 Compute_I_specular(vec3 k, float I, float c_b, uint n, vec3 v, float K) {
+	if(int(n) > 0 && c_b > 0) {
+		return computeFactor(I, v, K) * k * pow(c_b, n);
+	} else {
+		return vec3(0, 0, 0);
+	}
 }
 
 /*
