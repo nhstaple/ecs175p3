@@ -307,7 +307,7 @@ main(const int argc, const char** argv)
   if (argc >= 2)
     objects = ReadAsArrayObjects(std::string(argv[1]));
   else
-    objects = ReadAsArrayObjects("suzanne.obj");
+    objects = ReadAsArrayObjects("cube.obj");
   objects->Create();
 
   // A shared vertex array

@@ -1,6 +1,6 @@
 add_executable(run_p3
   main.cpp
-  geometry_triangle.cpp)
+  geometry_triangle.cpp painters.cpp)
 target_link_libraries(run_p3 PUBLIC util-core-3.3 glm)
 set_target_properties(run_p3 PROPERTIES CXX_STANDARD 11) 
 target_add_embeded_shaders(run_p3

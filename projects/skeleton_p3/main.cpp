@@ -28,7 +28,6 @@ using namespace glm;
 #include <imgui_impl_opengl3.h>
 
 #include "arcball_camera.h"
-ArcballCamera camera(vec3(0, 0, 5), vec3(0, 0, 0), vec3(0, 1, 0));
 
 #include "geometry_triangle.h"
 TriangleArrayObjects* objects;
@@ -42,7 +41,7 @@ vec3 normalize_vector(const vec3 v) {
   }
 }
 
-#define LIGHT_LOCATION_SCALE 1000
+#define LIGHT_LOCATION_SCALE 4
 
 // globals
 // control states
@@ -92,6 +91,10 @@ struct PhongState {
   }
 } phong;
 
+struct GouraudState {
+  bool enable;
+} gouraud;
+
 struct PaintersState {
   bool enable = false;
 } painters;
@@ -122,9 +125,58 @@ struct PointLightSource {
 
 } light;
 
+struct CameraState {
+  ArcballCamera camera = ArcballCamera(vec3(0, 0, 5), vec3(0, 0, 0), vec3(0, 1, 0));
+  float mouse_scroll_sensitivty = 1;
+  bool lock_ortho = false;
+} camera;
+
+void scroll(GLFWwindow* window, double xoff, double yoff)
+{
+  ImGuiIO& io = ImGui::GetIO();
+  if (!io.WantCaptureMouse) {
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+
+    static float zoom;
+    float new_zoom = (zoom + yoff * camera.mouse_scroll_sensitivty);
+
+    // right click -> zoom
+    if (zoom != new_zoom) {
+      camera.camera.zoom(-zoom);
+      camera.camera.zoom(new_zoom);
+      zoom = new_zoom;
+    }
+  }
+}
+
 void
 cursor(GLFWwindow* window, double xpos, double ypos)
 {
+  ImGuiIO& io = ImGui::GetIO();
+  if (!io.WantCaptureMouse) {
+    int left_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+    int right_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+
+    static vec2 prev_cursor;
+    vec2 cursor((xpos / width - 0.5f) * 2.f, (0.5f - ypos / height) * 2.f);
+    cursor = camera.mouse_scroll_sensitivty * cursor;
+
+    // right click -> zoom
+    if (right_state == GLFW_PRESS || right_state == GLFW_REPEAT) {
+      camera.camera.zoom(cursor.y - prev_cursor.y);
+    }
+
+    // left click -> rotate
+    if (left_state == GLFW_PRESS || left_state == GLFW_REPEAT) {
+      camera.camera.rotate(prev_cursor, cursor);
+    }
+
+    prev_cursor = cursor;
+  }
 }
 
 void
@@ -165,6 +217,7 @@ init()
   }
 
   glfwSetCursorPosCallback(window, cursor);
+  glfwSetScrollCallback(window, scroll);
 
   // Ensure we can capture the escape key being pressed below
   glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
@@ -191,6 +244,33 @@ init()
   glEnable(GL_DEPTH_TEST);
   // Accept fragment if it closer to the camera than the former one
   glDepthFunc(GL_LESS);
+}
+
+void glOrtho(
+  const float &b, const float &t, const float &l, const float &r,
+  const float &n, const float &f,
+  mat4 &M)
+{
+  // set OpenGL perspective projection matrix
+  M[0][0] = 2 / (r - l);
+  M[0][1] = 0;
+  M[0][2] = 0;
+  M[0][3] = 0;
+
+  M[1][0] = 0;
+  M[1][1] = 2 / (t - b);
+  M[1][2] = 0;
+  M[1][3] = 0;
+
+  M[2][0] = 0;
+  M[2][1] = 0;
+  M[2][2] = -2 / (f - n);
+  M[2][3] = 0;
+
+  M[3][0] = -(r + l) / (r - l);
+  M[3][1] = -(t + b) / (t - b);
+  M[3][2] = -(f + n) / (f - n);
+  M[3][3] = 1;
 }
 
 void
@@ -235,12 +315,19 @@ DrawGUI(bool* p_open=&gui.enable)
   if (ImGui::Begin("Information", NULL, flags)) {
     ImGui::Text("FPS (Hz): %.f\n", fps);
 
-    /*
-    if (ImGui::Checkbox("Render Depth", &render_depth)) {
-      // As we are switching to a different mode, we need to setup the framebuffer object again
-      fbo.Resize(framebuffer_size.x, framebuffer_size.y, render_depth);
+    // Camera
+    ImGui::Text("Camera Control Parameters");
+    if(camera.mouse_scroll_sensitivty != 0) {
+      ImGui::SliderFloat("Sensitivity##cam_control", &camera.mouse_scroll_sensitivty, 0, 1);
+    } else {
+      if(ImGui::Button("Enable##cam_control")) {
+        camera.mouse_scroll_sensitivty = 1;
+      }
     }
-   */
+    ImGui::Checkbox("Lock Ortho View", &camera.lock_ortho);
+
+    ImGui::Text("Painter's Algorithm");
+    ImGui::Checkbox("Enable##painters", &painters.enable);
 
     // Light
     ImGui::Text("Light Position");
@@ -251,34 +338,38 @@ DrawGUI(bool* p_open=&gui.enable)
     ImGui::SliderFloat("I_l", &light.intensity, 0, 1);
     ImGui::ColorEdit3("Light Source Color", light.GetColorArray()); light.UpdateRGB();
 
-    // Camera
-    ImGui::Text("Camera Position: TODO");
-    // TODO
-
     if(ImGui::Checkbox("Enable Phong", &phong.enable)) {
+      if(phong.enable && gouraud.enable) {
+        gouraud.enable = false;
+      }
     }
 
-    if(phong.enable) {
-      // Phong Parameters
-      if(ImGui::Checkbox("Enable Ambient", &phong.enable_ambient)) {
+    if(ImGui::Checkbox("Enable Gouraud", &gouraud.enable)) {
+      if(gouraud.enable && phong.enable) {
+        phong.enable = false;
       }
-      if(phong.enable_ambient) {
-        // ambient coefficient
-        ImGui::SliderFloat("I_a", &phong.ambient_intensity, 0, 1);
-        ImGui::ColorEdit3("Ambient Color", phong.GetAmbientColor()); phong.UpdateColor();
-      }
-      if(ImGui::Checkbox("Enable Diffuse", &phong.enable_diffuse)) {
-      }
-      if(phong.enable_diffuse) {
-        // diffuse coefficient
-        ImGui::ColorEdit3("Material Color", phong.GetDiffuseColor()); phong.UpdateColor();
-      }
-      if(ImGui::Checkbox("Enable Specular", &phong.enable_specular)) {
-      }
-      if(phong.enable_specular) {
-        // specular factor
-        ImGui::SliderInt("Specular Factor", &phong.specular_factor, 0, 16);
-      }
+    }
+
+    // Lighting Parameters
+    ImGui::Checkbox("Enable Ambient", &phong.enable_ambient);
+
+    if(phong.enable_ambient) {
+      // ambient coefficient
+      ImGui::SliderFloat("I_a", &phong.ambient_intensity, 0, 1);
+      ImGui::ColorEdit3("Ambient Color", phong.GetAmbientColor()); phong.UpdateColor();
+    }
+    ImGui::Checkbox("Enable Diffuse", &phong.enable_diffuse);
+
+    if(phong.enable_diffuse) {
+      // diffuse coefficient
+      ImGui::ColorEdit3("Material Color", phong.GetDiffuseColor()); phong.UpdateColor();
+    }
+
+    ImGui::Checkbox("Enable Specular", &phong.enable_specular);
+
+    if(phong.enable_specular) {
+      // specular factor
+      ImGui::SliderInt("Specular Factor", &phong.specular_factor, 0, 16);
     }
 
     ImGui::End();
@@ -290,13 +381,9 @@ DrawGUI(bool* p_open=&gui.enable)
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
-void
-PainterAlgorithm(const TriangleArrayObjects::Mesh& mesh)
-{
-  // -----------------------------------------------------------
-  // TODO: painter's algorithm
-  // -----------------------------------------------------------
-}
+#include <gl/gl.h>
+
+extern void PainterAlgorithm(const TriangleArrayObjects::Mesh& mesh, const int axis=X_DISTANCE);
 
 int
 main(void)
@@ -314,6 +401,7 @@ main(void)
   GLuint MVP_id = glGetUniformLocation(program_id, "MVP");
   // phong
   GLuint Phong_Enable_id = glGetUniformLocation(program_id, "enablePhong");
+  GLuint Gouraud_Enable_id = glGetUniformLocation(program_id, "enableGouraud");
   // ambient
   GLuint Phong_Ambient_Enable_id = glGetUniformLocation(program_id, "enableAmbient");
   GLuint Ambient_Intensity_id = glGetUniformLocation(program_id, "I_a");
@@ -334,12 +422,53 @@ main(void)
   // Load the texture
   GLuint tex = loadTexture_from_file("uvmap.jpg");
 
+  GLuint Time_id = glGetUniformLocation(program_id, "time");
+
   // Read our .obj file
   objects = ReadAsArrayObjects("suzanne.obj");
   objects->Create();
 
-  do {
+  float tick = 0;
 
+  /*
+  vec3 xy_pos = vec3(0, 0, -10);
+  mat4 XY = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}, {xy_pos.x, xy_pos.y, xy_pos.z, 1});
+  vec3 yz_pos = vec3(0, 0, -10);
+  mat4 YZ = mat4({0, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {yz_pos.x, yz_pos.y, yz_pos.z, 1});
+  vec3 xz_pos = vec3(0, 0, -10);
+  const mat4 MVP_xy = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
+  rotate<float>(XY, 180, {0, 0, 1}) *
+  objects->GetModelMatrix();
+  mat4 MVP_yz = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
+    rotate<float>(YZ, 45, {1, 0, 0}) *
+    objects->GetModelMatrix();
+  mat4 MVP_xz = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
+    mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {xz_pos.x, xz_pos.y, xz_pos.z, 1}) *
+    objects->GetModelMatrix();
+  */
+
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
+
+  const vec3 xy_pos = vec3(0, 0, -10);
+  const vec3 yz_pos = vec3(0, 0, -10);
+  const vec3 xz_pos = vec3(0, 0, -10);
+
+  const mat4 I = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1});
+  const mat4 XY = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1});
+  const mat4 YZ = rotate<float>(mat4({0, 1, 0, 0}, {0, 0, 1, 0}, {1, 0, 0, 0}, {0, 0, 0, 1}), 0, {0, 0, 1});
+  const mat4 XZ = rotate<float>(mat4({1, 0, 0, 0}, {0, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 0, 1}), 0, {0, 0, 1});
+  mat4 O = mat4(); glOrtho(-3, 3, -3, 3, -100, 100, O);
+
+  const auto boop = camera.camera.transform();
+
+  const mat4 M_xy_o = O * boop * XY * objects->GetModelMatrix();
+  const mat4 M_yz_o = O * boop * YZ * objects->GetModelMatrix();
+  const mat4 M_xz_o = O * boop * XZ * objects->GetModelMatrix();
+
+  do {
+    if(!phong.enable && !gouraud.enable) tick += 1e-2;
+    if(!phong.enable && !gouraud.enable && tick > 9000) tick = tick - 9000;
     // Clear the screen
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -353,52 +482,157 @@ main(void)
     // Send our transformation to the currently bound shader, in the "MVP" uniform
     mat4 P = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f);
     mat4 M = objects->GetModelMatrix();
-    mat4 V = camera.transform();
+    mat4 V = camera.camera.transform();
     mat4 MVP = P * V * M;
 
-    // Send our transformation to the currently bound shader,
-    // in the "MVP" uniform
-    glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP[0][0]);
-    if(phong.enable) {
-      // phong flags
-      glUniform1ui(Phong_Enable_id, 1);
+    mat4 MVP_xy;
+    mat4 MVP_yz;
+    mat4 MVP_xz;
+
+    if(!camera.lock_ortho) {
+      MVP_xy = O * camera.camera.transform() * XY * objects->GetModelMatrix();
+      MVP_yz = O * camera.camera.transform() * YZ * objects->GetModelMatrix();
+      MVP_xz = O * camera.camera.transform() * XZ * objects->GetModelMatrix();
     } else {
-      glUniform1ui(Phong_Enable_id, 0);
+      MVP_xy = O * boop * XY * objects->GetModelMatrix();;
+      MVP_yz = O * boop * YZ * objects->GetModelMatrix();;
+      MVP_xz = O * boop * XZ * objects->GetModelMatrix();;
     }
 
+    // flags
+    glUniform1ui(Phong_Enable_id, phong.enable);
     glUniform1ui(Phong_Ambient_Enable_id, phong.enable_ambient);
     glUniform1ui(Phong_Diffuse_Enable_id, phong.enable_diffuse);
     glUniform1ui(Phong_Specular_Enable_id, phong.enable_specular);
-    // phong parameters: k
+    glUniform1ui(Gouraud_Enable_id, gouraud.enable);
+    // colors
     glUniform3f(Ambient_Color_id, phong.ambient_rgb.x, phong.ambient_rgb.y, phong.ambient_rgb.z);
     glUniform3f(Diffuse_Color_id, phong.diffuse_rgb.x, phong.diffuse_rgb.y, phong.diffuse_rgb.z);
     glUniform3f(Specular_Color_id, light.color_rgb.x, light.color_rgb.y, light.color_rgb.z);
-    // phong camera
-    glUniform3f(Camera_Location_id, camera.eye().x, camera.eye().y, camera.eye().z);
-    // phong light
-    glUniform3f(Light_Location_id, LIGHT_LOCATION_SCALE * light.position.x, LIGHT_LOCATION_SCALE * light.position.y,
-                LIGHT_LOCATION_SCALE * light.position.z);
+    // intensities
     glUniform1f(Light_Intensity_id, light.intensity);
-    // ambient
     glUniform1f(Ambient_Intensity_id, phong.ambient_intensity);
-    // specular
+    // specular n
     glUniform1ui(Specular_Level_id, phong.specular_factor);
+    // time
+    glUniform1f(Time_id, tick);
 
-    if (!painters.enable) {
-      glEnable(GL_DEPTH_TEST);
-      objects->Render();
+    { // first view port
+      glViewport(0, 0, width / 2, height / 2);
+
+      // Send our transformation to the currently bound shader,
+      // in the "MVP" uniform
+      glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP[0][0]);
+
+      // camera
+      glUniform3f(Camera_Location_id, camera.camera.eye().x, camera.camera.eye().y, camera.camera.eye().z);
+      // light
+      glUniform3f(Light_Location_id,
+                  LIGHT_LOCATION_SCALE * light.position.x,
+                  LIGHT_LOCATION_SCALE * light.position.y,
+                  LIGHT_LOCATION_SCALE * light.position.z);
+
+      if (!painters.enable) {
+        glEnable(GL_DEPTH_TEST);
+        objects->Render();
+      }
+      else {
+        // -----------------------------------------------------------
+        // NOTE: YOU HAVE TO DISABLE DEPTH TEST FOR P3 !!!!!!!
+        // otherwise you get 0 for this part
+        // -----------------------------------------------------------
+        glDisable(GL_DEPTH_TEST);
+        // -----------------------------------------------------------
+        // TODO: painter's algorithm
+        // -----------------------------------------------------------
+        for (auto& m : objects->meshes) {
+          // PainterAlgorithm(m, -1);
+        }
+      }
     }
-    else {
-      // -----------------------------------------------------------
-      // NOTE: YOU HAVE TO DISABLE DEPTH TEST FOR P3 !!!!!!!
-      // otherwise you get 0 for this part
-      // -----------------------------------------------------------
-      glDisable(GL_DEPTH_TEST);
-      // -----------------------------------------------------------
-      // TODO: painter's algorithm
-      // -----------------------------------------------------------
-      for (auto& m : objects->meshes)
-        PainterAlgorithm(m);
+
+    { // second viewport
+      glViewport(width / 2, 0, width / 2, height / 2);
+      glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_xy[0][0]);
+      glUniform3f(Camera_Location_id, xy_pos.x, xy_pos.y, xy_pos.z);
+      glUniform3f(Light_Location_id,
+                  LIGHT_LOCATION_SCALE * light.position.x,
+                  LIGHT_LOCATION_SCALE * light.position.y,
+                  LIGHT_LOCATION_SCALE * light.position.z);
+
+      if (!painters.enable) {
+        glEnable(GL_DEPTH_TEST);
+        objects->Render();
+      }
+      else {
+        // -----------------------------------------------------------
+        // NOTE: YOU HAVE TO DISABLE DEPTH TEST FOR P3 !!!!!!!
+        // otherwise you get 0 for this part
+        // -----------------------------------------------------------
+        glDisable(GL_DEPTH_TEST);
+        // -----------------------------------------------------------
+        // TODO: painter's algorithm
+        // -----------------------------------------------------------
+        for (auto& m : objects->meshes) {
+          // PainterAlgorithm(m, Z_DISTANCE);
+        }
+      }
+    }
+
+    { // third viewport
+      glViewport(0, height / 2, width / 2, height / 2);
+      glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_xz[0][0]);
+      glUniform3f(Camera_Location_id, xz_pos.x, xz_pos.y, xz_pos.z);
+      glUniform3f(Light_Location_id,
+                  LIGHT_LOCATION_SCALE * light.position.x,
+                  LIGHT_LOCATION_SCALE * light.position.z,
+                  LIGHT_LOCATION_SCALE * light.position.y);
+
+      if (!painters.enable) {
+        glEnable(GL_DEPTH_TEST);
+        objects->Render();
+      }
+      else {
+        // -----------------------------------------------------------
+        // NOTE: YOU HAVE TO DISABLE DEPTH TEST FOR P3 !!!!!!!
+        // otherwise you get 0 for this part
+        // -----------------------------------------------------------
+        glDisable(GL_DEPTH_TEST);
+        // -----------------------------------------------------------
+        // TODO: painter's algorithm
+        // -----------------------------------------------------------
+        for (auto& m : objects->meshes) {
+          // PainterAlgorithm(m, Y_DISTANCE);
+        }
+      }
+    }
+
+    { // fourth viewport
+      glViewport(width / 2, height / 2, width / 2, height / 2);
+      glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_yz[0][0]);
+      glUniform3f(Camera_Location_id, yz_pos.x, yz_pos.y, yz_pos.z);
+      glUniform3f(Light_Location_id,
+                  LIGHT_LOCATION_SCALE * light.position.y,
+                  LIGHT_LOCATION_SCALE * light.position.z,
+                  LIGHT_LOCATION_SCALE * light.position.x);
+
+      if (!painters.enable) {
+        glEnable(GL_DEPTH_TEST);
+        objects->Render();
+      }
+      else {
+        // -----------------------------------------------------------
+        // NOTE: YOU HAVE TO DISABLE DEPTH TEST FOR P3 !!!!!!!
+        // otherwise you get 0 for this part
+        // -----------------------------------------------------------
+        glDisable(GL_DEPTH_TEST);
+        // -----------------------------------------------------------
+        // TODO: painter's algorithm
+        // -----------------------------------------------------------
+        for (auto& m : objects->meshes) {
+          // PainterAlgorithm(m, X_DISTANCE);
+        }
+      }
     }
 
     // -----------------------------------------------------------
