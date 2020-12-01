@@ -76,32 +76,6 @@ struct TriangleArrayObjects : public AbstractGeometry {
       min = min < z ? min : z;
       return min;
     }
-    Mesh &Mesh::operator=(const Mesh &m) {
-      const int n = m.size_triangles;
-      size_triangles = n;
-      vertices.reset(new float[n*9]);
-      for(int i = 0; i < n*9; i++) {
-        auto* a = m.vertices.get();
-        const auto* b = m.vertices.get();
-        a[i] = b[i];
-      }
-      normals.reset(new float[n*9]);
-      for(int i = 0; i < n*9; i++) {
-        auto* a = m.normals.get();
-        const auto* b = m.normals.get();
-        a[i] = b[i];
-      }
-      texcoords.reset(new float[n*6]);
-      for(int i = 0; i < n*6; i++) {
-        auto* a = m.texcoords.get();
-        const auto* b = m.texcoords.get();
-        a[i] = b[i];
-      }
-      return *this;
-    }
-    Mesh::Mesh(const Mesh& m) {
-    }
-    Mesh::Mesh() {}
   };
 
   std::vector<Mesh> meshes;

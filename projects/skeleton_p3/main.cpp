@@ -54,6 +54,8 @@ struct PhongState {
   vec3 ambient_rgb = vec3(0.5, 0.5, 0.5);
   vec3 diffuse_rgb = vec3(1, 1, 1);
   float ambient_intensity = 1;
+  float K = 0;
+  bool cycle_k = false;
 
   float amb_color_float[3];
   float dif_color_float[3];
@@ -337,6 +339,8 @@ DrawGUI(bool* p_open=&gui.enable)
     // color slider
     ImGui::SliderFloat("I_l", &light.intensity, 0, 1);
     ImGui::ColorEdit3("Light Source Color", light.GetColorArray()); light.UpdateRGB();
+    ImGui::SliderFloat("K", &phong.K, -1, 1);
+    ImGui::Checkbox("Cycle K", &phong.cycle_k);
 
     if(ImGui::Checkbox("Enable Phong", &phong.enable)) {
       if(phong.enable && gouraud.enable) {
@@ -418,6 +422,7 @@ main(void)
   // light
   GLuint Light_Location_id = glGetUniformLocation(program_id, "lightLocation");
   GLuint Light_Intensity_id = glGetUniformLocation(program_id, "I_l");
+  GLuint K_id = glGetUniformLocation(program_id, "K");
 
   // Load the texture
   GLuint tex = loadTexture_from_file("uvmap.jpg");
@@ -430,23 +435,6 @@ main(void)
 
   float tick = 0;
 
-  /*
-  vec3 xy_pos = vec3(0, 0, -10);
-  mat4 XY = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 0, 0}, {xy_pos.x, xy_pos.y, xy_pos.z, 1});
-  vec3 yz_pos = vec3(0, 0, -10);
-  mat4 YZ = mat4({0, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {yz_pos.x, yz_pos.y, yz_pos.z, 1});
-  vec3 xz_pos = vec3(0, 0, -10);
-  const mat4 MVP_xy = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
-  rotate<float>(XY, 180, {0, 0, 1}) *
-  objects->GetModelMatrix();
-  mat4 MVP_yz = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
-    rotate<float>(YZ, 45, {1, 0, 0}) *
-    objects->GetModelMatrix();
-  mat4 MVP_xz = perspective(radians(45.0f), 4.0f / 3.0f, 0.1f, 100.0f) *
-    mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {xz_pos.x, xz_pos.y, xz_pos.z, 1}) *
-    objects->GetModelMatrix();
-  */
-
   int width, height;
   glfwGetWindowSize(window, &width, &height);
 
@@ -454,10 +442,33 @@ main(void)
   const vec3 yz_pos = vec3(0, 0, -10);
   const vec3 xz_pos = vec3(0, 0, -10);
 
-  const mat4 I = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1});
-  const mat4 XY = mat4({1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1});
-  const mat4 YZ = rotate<float>(mat4({0, 1, 0, 0}, {0, 0, 1, 0}, {1, 0, 0, 0}, {0, 0, 0, 1}), 0, {0, 0, 1});
-  const mat4 XZ = rotate<float>(mat4({1, 0, 0, 0}, {0, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 0, 1}), 0, {0, 0, 1});
+  const auto SWAP_XY = mat4({1, 0, 0, 0},
+                            {0, 1, 0, 0},
+                            {0, 0, 1, 0},
+                            {0, 0, 0, 1});
+
+  const auto SWAP_YZ = mat4({0, 1, 0, 0},
+                            {0, 0, 1, 0},
+                            {1, 0, 0, 0},
+                            {0, 0, 0, 1});
+
+  const auto SWAP_XZ = mat4({1, 0, 0, 0},
+                            {0, 0, 1, 0},
+                            {0, 1, 0, 0},
+                            {0, 0, 0, 1});
+
+  const auto I = mat4({1, 0, 0, 0},
+                      {0, 1, 0, 0},
+                      {0, 0, 1, 0},
+                      {0, 0, 0, 1});
+
+  const mat4 XY = rotate<float>(SWAP_XY,0,{0,0, 1});
+  const mat4 YZ = rotate<float>(SWAP_YZ,-90*0.01745329252,{0, 0, 1});
+  const mat4 XZ = rotate<float>(SWAP_XZ,180*0.01745329252,{0,1, 0});
+
+  // const mat4 XY = I;
+  // const mat4 YZ = rotate<float>(rotate<float>(I, 90, {1, 0, 0}), 90, {0, 0, 1});
+  // const mat4 XZ = rotate<float>(rotate<float>(I, 90, {0, 1, 0}), 90, {0, 0, 1});
   mat4 O = mat4(); glOrtho(-3, 3, -3, 3, -100, 100, O);
 
   const auto boop = camera.camera.transform();
@@ -467,8 +478,8 @@ main(void)
   const mat4 M_xz_o = O * boop * XZ * objects->GetModelMatrix();
 
   do {
-    if(!phong.enable && !gouraud.enable) tick += 1e-2;
-    if(!phong.enable && !gouraud.enable && tick > 9000) tick = tick - 9000;
+    if(phong.cycle_k || (!phong.enable && !gouraud.enable)) tick += 1e-2;
+    if(tick > 9000) tick = tick - 9000;
     // Clear the screen
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -494,9 +505,9 @@ main(void)
       MVP_yz = O * camera.camera.transform() * YZ * objects->GetModelMatrix();
       MVP_xz = O * camera.camera.transform() * XZ * objects->GetModelMatrix();
     } else {
-      MVP_xy = O * boop * XY * objects->GetModelMatrix();;
-      MVP_yz = O * boop * YZ * objects->GetModelMatrix();;
-      MVP_xz = O * boop * XZ * objects->GetModelMatrix();;
+      MVP_xy = O * boop * XY * objects->GetModelMatrix();
+      MVP_yz = O * boop * YZ * objects->GetModelMatrix();
+      MVP_xz = O * boop * XZ * objects->GetModelMatrix();
     }
 
     // flags
@@ -516,6 +527,8 @@ main(void)
     glUniform1ui(Specular_Level_id, phong.specular_factor);
     // time
     glUniform1f(Time_id, tick);
+    if(phong.cycle_k) phong.K = (float)glm::sin(tick/2);
+    glUniform1f(K_id, 10 * phong.K);
 
     { // first view port
       glViewport(0, 0, width / 2, height / 2);
@@ -532,7 +545,7 @@ main(void)
                   LIGHT_LOCATION_SCALE * light.position.y,
                   LIGHT_LOCATION_SCALE * light.position.z);
 
-      if (!painters.enable) {
+      if(!painters.enable) {
         glEnable(GL_DEPTH_TEST);
         objects->Render();
       }
@@ -545,20 +558,22 @@ main(void)
         // -----------------------------------------------------------
         // TODO: painter's algorithm
         // -----------------------------------------------------------
+
         for (auto& m : objects->meshes) {
           // PainterAlgorithm(m, -1);
         }
       }
     }
 
+
     { // second viewport
       glViewport(width / 2, 0, width / 2, height / 2);
       glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_xy[0][0]);
       glUniform3f(Camera_Location_id, xy_pos.x, xy_pos.y, xy_pos.z);
-      glUniform3f(Light_Location_id,
-                  LIGHT_LOCATION_SCALE * light.position.x,
-                  LIGHT_LOCATION_SCALE * light.position.y,
-                  LIGHT_LOCATION_SCALE * light.position.z);
+      //glUniform3f(Light_Location_id,
+      //            LIGHT_LOCATION_SCALE * light.position.x,
+      //            LIGHT_LOCATION_SCALE * light.position.y,
+      //            LIGHT_LOCATION_SCALE * light.position.z);
 
       if (!painters.enable) {
         glEnable(GL_DEPTH_TEST);
@@ -583,10 +598,10 @@ main(void)
       glViewport(0, height / 2, width / 2, height / 2);
       glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_xz[0][0]);
       glUniform3f(Camera_Location_id, xz_pos.x, xz_pos.y, xz_pos.z);
-      glUniform3f(Light_Location_id,
-                  LIGHT_LOCATION_SCALE * light.position.x,
-                  LIGHT_LOCATION_SCALE * light.position.z,
-                  LIGHT_LOCATION_SCALE * light.position.y);
+      //glUniform3f(Light_Location_id,
+      //            LIGHT_LOCATION_SCALE * light.position.x,
+      //            LIGHT_LOCATION_SCALE * light.position.z,
+      //            LIGHT_LOCATION_SCALE * light.position.y);
 
       if (!painters.enable) {
         glEnable(GL_DEPTH_TEST);
@@ -611,10 +626,10 @@ main(void)
       glViewport(width / 2, height / 2, width / 2, height / 2);
       glUniformMatrix4fv(MVP_id, 1, GL_FALSE, &MVP_yz[0][0]);
       glUniform3f(Camera_Location_id, yz_pos.x, yz_pos.y, yz_pos.z);
-      glUniform3f(Light_Location_id,
-                  LIGHT_LOCATION_SCALE * light.position.y,
-                  LIGHT_LOCATION_SCALE * light.position.z,
-                  LIGHT_LOCATION_SCALE * light.position.x);
+      //glUniform3f(Light_Location_id,
+      //            LIGHT_LOCATION_SCALE * light.position.y,
+      //            LIGHT_LOCATION_SCALE * light.position.z,
+      //            LIGHT_LOCATION_SCALE * light.position.x);
 
       if (!painters.enable) {
         glEnable(GL_DEPTH_TEST);
@@ -634,6 +649,7 @@ main(void)
         }
       }
     }
+
 
     // -----------------------------------------------------------
     // TODO: post processing (half-toning)

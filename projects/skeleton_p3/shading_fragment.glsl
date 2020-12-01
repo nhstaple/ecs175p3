@@ -1,6 +1,6 @@
 #version 330 core
 
-#define uwu false
+#define uwu true
 
 // Interpolated values from the vertex shaders
 in vec3 Normal_modelspace;
@@ -20,6 +20,7 @@ uniform vec3 k_a; // ambient color
 uniform vec3 k_d; // diffuse color
 uniform vec3 k_s; // specular color
 uniform uint specularLevel;
+uniform float K;
 
 uniform bool enablePhong;
 uniform bool enableGouraud;
@@ -78,10 +79,10 @@ vec3 Compute_Color(vec3 camera_pos, vec3 light_pos, vec3 position, vec3 normal) 
 	vec3 r = normalize(-l + 2*(dot(n, l))*n);
 	float c_a = dot(n, l);
 	float c_b = dot(r, normalize(v));
-	float K = length(x - p);
+	float coeff = K * length(x - p);
 	if(uwu) {
-		K = 0;
-		v = f - p;
+		// K = 0;
+		v = f - pos;
 	}
 
 	vec3 ambient_color = k_a;
@@ -96,13 +97,13 @@ vec3 Compute_Color(vec3 camera_pos, vec3 light_pos, vec3 position, vec3 normal) 
 	}
 	vec3 I_diffuse = vec3(0, 0, 0);
 	if(enableDiffuse) {
-		I_diffuse = Compute_I_diffuse(material_color, I_l, c_a, v, K);
+		I_diffuse = Compute_I_diffuse(material_color, I_l, c_a, v, coeff);
 		if(!isZeroVector(I_diffuse)) n_ = n_ + 1;
 	}
 
 	vec3 I_specular = vec3(0, 0, 0);
 	if(enableSpecular) {
-		I_specular = Compute_I_specular(light_color, I_l, c_b, specularLevel, v, K);
+		I_specular = Compute_I_specular(light_color, I_l, c_b, specularLevel, v, coeff);
 		if(!isZeroVector(I_specular)) n_ = n_ + 1;
 	}
 

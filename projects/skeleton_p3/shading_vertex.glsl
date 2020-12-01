@@ -1,6 +1,6 @@
 #version 330 core
 
-#define uwu false
+#define uwu true
 
 // Input vertex data, different for all executions of this shader.
 layout(location = 0) in vec3 vertexPosition_modelspace; // p: position of reflection
@@ -11,6 +11,7 @@ layout(location = 2) in vec3 vertexNormal_modelspace; // n: normal vector
 out vec3 Normal_modelspace;
 out vec3 Gouraud_color;
 out vec3 pos;
+out vec3 avg_pos;
 
 // Values that stay constant for the whole mesh.
 uniform mat4 MVP;
@@ -23,6 +24,7 @@ uniform vec3 k_a; // ambient color
 uniform vec3 k_d; // diffuse color
 uniform vec3 k_s; // specular color
 uniform uint specularLevel;
+uniform float K;
 
 uniform bool enableAmbient;
 uniform bool enableDiffuse;
@@ -37,7 +39,8 @@ vec3 Compute_I_specular(vec3 k, float I, float c_b, uint n, vec3 v, float K);
 
 void main() {
 	gl_Position =  MVP * vec4(vertexPosition_modelspace,1);
-	pos = vec3(gl_Position.x, gl_Position.y, gl_Position.z);
+	// pos = vec3(gl_Position.x, gl_Position.y, gl_Position.z);
+	pos = vec3(vertexPosition_modelspace.x, vertexPosition_modelspace.y, vertexPosition_modelspace.z);
 
 	Normal_modelspace = normalize(vertexNormal_modelspace);
 	vec4 cam = vec4(cameraLocation, 1);
@@ -67,11 +70,11 @@ vec3 Compute_Color(vec3 camera_pos, vec3 light_pos, vec3 position, vec3 normal) 
 	vec3 r = normalize(-l + 2*(dot(n, l))*n);
 	float c_a = dot(n, l);
 	float c_b = dot(r, v);
-	float K = length(x - p);
+	float coeff = K * length(x - p);
 
 	if(uwu) {
-		K = 0;
-		v = f - p;
+		// K = 0;
+		v = f - pos;
 	}
 
 	vec3 ambient_color = k_a;
@@ -86,13 +89,13 @@ vec3 Compute_Color(vec3 camera_pos, vec3 light_pos, vec3 position, vec3 normal) 
 	}
 	vec3 I_diffuse = vec3(0, 0, 0);
 	if(enableDiffuse) {
-		I_diffuse = Compute_I_diffuse(material_color, I_l, c_a, v, K);
+		I_diffuse = Compute_I_diffuse(material_color, I_l, c_a, v, coeff);
 		if(!isZeroVector(I_diffuse)) n_ = n_ + 1;
 	}
 
 	vec3 I_specular = vec3(0, 0, 0);
 	if(enableSpecular) {
-		I_specular = Compute_I_specular(light_color, I_l, c_b, specularLevel, v, K);
+		I_specular = Compute_I_specular(light_color, I_l, c_b, specularLevel, v, coeff);
 		if(!isZeroVector(I_specular)) n_ = n_ + 1;
 	}
 

@@ -254,8 +254,7 @@ TriangleArrayObjects::Render()
   glEnableVertexAttribArray(1);
   glEnableVertexAttribArray(2);
 
-  auto data = meshes;
-  for (auto& m : data) {
+  for (auto& m : meshes) {
 
     // 1rst attribute buffer : vertices
     glEnableVertexAttribArray(0);
